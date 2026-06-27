@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chip Bank — Poker & Blackjack</title>
+<style>
+  :root{
+    --felt:#0b6b3a;--gold:#e8c66a;--gold-dim:#b9974a;--ink:#0c130f;
+    --panel:#13231a;--panel-2:#1b2f23;--line:#2c4636;--text:#eaf3ed;
+    --muted:#9db5a7;--red:#e2574c;--green:#3ecf7a;--blue:#5aa9e6;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(120% 90% at 50% -10%, #18402b 0%, #0a2417 55%, #05140d 100%);
+    color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:18px 16px 120px}
+  h1{font-size:22px;margin:0;letter-spacing:.5px}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .brand .suits{font-size:24px;letter-spacing:2px}
+  .brand .suits .r{color:var(--red)}
+  .sub{color:var(--muted);font-size:12px;margin-top:2px}
+  .card{background:linear-gradient(180deg,var(--panel-2),var(--panel));border:1px solid var(--line);
+    border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px;text-transform:uppercase;letter-spacing:.6px}
+  input[type=text],input[type=number]{width:100%;background:#0c1812;border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:12px 14px;font-size:16px;outline:none}
+  input:focus{border-color:var(--gold-dim)}
+  .row{display:flex;gap:10px;align-items:center}.row>*{flex:1}.row .shrink{flex:0 0 auto}
+  button{font-family:inherit;cursor:pointer;border:none;border-radius:10px;font-size:15px;font-weight:600;
+    padding:12px 16px;color:var(--ink);background:linear-gradient(180deg,#f1d684,var(--gold));
+    transition:transform .05s ease, filter .15s ease}
+  button:active{transform:translateY(1px)}
+  button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  button.ghost:active{background:#16271d}
+  button.danger{background:linear-gradient(180deg,#ef6f64,var(--red));color:#fff}
+  button.blue{background:linear-gradient(180deg,#7cc0f0,var(--blue));color:#06243a}
+  button.sm{padding:8px 12px;font-size:13px}button.tiny{padding:6px 10px;font-size:12px;border-radius:8px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;background:#0c1812;padding:6px;border-radius:12px;border:1px solid var(--line)}
+  .tabs button{flex:1;background:transparent;color:var(--muted);font-weight:700;padding:11px}
+  .tabs button.active{background:linear-gradient(180deg,#f1d684,var(--gold));color:var(--ink)}
+  .roombar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;
+    background:#0c1812;border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+  .roombar .code{font-size:22px;font-weight:800;letter-spacing:4px;color:var(--gold)}
+  .roombar .lab{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+  .you-tag{font-size:12px;color:var(--muted)}
+  .pot{text-align:center;padding:18px;border-radius:16px;margin-bottom:14px;
+    background:radial-gradient(120% 120% at 50% 0%, #15573a, #0a3a25);border:1px solid #1f7a4d}
+  .pot .lab{font-size:12px;letter-spacing:2px;color:#bfe9cf;text-transform:uppercase}
+  .pot .amt{font-size:40px;font-weight:800;color:#fff;line-height:1.1;margin-top:2px}
+  .pot .amt .c{color:var(--gold)}
+  .plist{display:flex;flex-direction:column;gap:10px}
+  .pl{background:#0e1c14;border:1px solid var(--line);border-radius:14px;padding:12px}
+  .pl.folded{opacity:.5}
+  .pl.me{border-color:var(--gold-dim);box-shadow:0 0 0 1px rgba(232,198,106,.25) inset}
+  .pl.dealer{border-color:#1f7a4d}
+  .pl-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .pl-name{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px;min-width:0}
+  .pl-name .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:#3b5345}
+  .dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .badge{font-size:10px;font-weight:800;letter-spacing:.5px;padding:3px 7px;border-radius:999px;text-transform:uppercase}
+  .badge.you{background:var(--gold);color:var(--ink)}
+  .badge.deal{background:#13402a;color:var(--green);border:1px solid #1f7a4d}
+  .badge.in{background:#13402a;color:var(--green);border:1px solid #1f7a4d}
+  .badge.host{background:#1d2c44;color:var(--blue);border:1px solid #2c4a6e}
+  .pl-bal{font-size:20px;font-weight:800;color:var(--gold);white-space:nowrap}
+  .pl-meta{font-size:12px;color:var(--muted);margin-top:2px}
+  .bet-row{display:flex;gap:8px;margin-top:10px}
+  .bet-row input{flex:1;padding:9px 12px;font-size:15px}
+  .quick{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .quick button{background:#102a1c;color:var(--text);border:1px solid var(--line);font-weight:600;padding:7px 11px;font-size:13px;border-radius:8px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .toolbar button{flex:1;min-width:110px}
+  .help-fab{position:fixed;right:18px;bottom:18px;width:58px;height:58px;border-radius:50%;font-size:26px;
+    font-weight:800;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+  .overlay{position:fixed;inset:0;background:rgba(3,10,6,.72);backdrop-filter:blur(3px);z-index:100;display:none;align-items:flex-end;justify-content:center}
+  .overlay.show{display:flex}
+  .sheet{width:100%;max-width:760px;max-height:88vh;overflow-y:auto;background:linear-gradient(180deg,#16271d,#0e1a13);
+    border:1px solid var(--line);border-bottom:none;border-radius:18px 18px 0 0;padding:18px 18px 28px}
+  @media(min-width:600px){.overlay{align-items:center}.sheet{border-radius:18px;border-bottom:1px solid var(--line)}}
+  .sheet h2{margin:0 0 4px;font-size:20px}
+  .sheet .close{position:sticky;top:0;float:right;background:transparent;color:var(--muted);font-size:22px;padding:0 6px}
+  .rules-tabs{display:flex;gap:8px;margin:14px 0}
+  .rules-tabs button{flex:1;background:#0c1812;color:var(--muted);border:1px solid var(--line)}
+  .rules-tabs button.active{background:var(--panel-2);color:var(--gold);border-color:var(--gold-dim)}
+  .rules-body{font-size:14px;line-height:1.6;color:#d7e6dd}
+  .rules-body h3{color:var(--gold);font-size:15px;margin:16px 0 6px}
+  .rules-body ul{margin:6px 0;padding-left:20px}.rules-body li{margin:3px 0}
+  .rank{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13px}
+  .rank .n{color:var(--muted)}
+  .hand-row{padding:9px 0;border-bottom:1px dashed var(--line)}
+  .hand-row .label{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:7px}
+  .hand-row .label .name{font-size:14px;font-weight:800;color:var(--gold)}
+  .hand-row .label .desc{color:var(--muted);font-weight:400;font-size:12px;text-align:right}
+  .cards{display:flex;gap:4px}
+  .pcard{width:30px;height:42px;background:#fbfbf6;border-radius:5px;border:1px solid #cdcdc3;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+    color:#1b1b1b;box-shadow:0 1px 3px rgba(0,0,0,.35);flex:0 0 auto}
+  .pcard.red{color:#d2271c}
+  .pcard .r{font-weight:800;font-size:12px;line-height:1}
+  .pcard .s{font-size:13px;line-height:1}
+  .win-list{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .win-opt{display:flex;align-items:center;justify-content:space-between;background:#0e1c14;border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer}
+  .win-opt.sel{border-color:var(--gold);background:#16321f}
+  .win-opt .ck{width:22px;height:22px;border-radius:6px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:800}
+  .win-opt.sel .ck{background:var(--gold);color:var(--ink);border-color:var(--gold)}
+  .bj-state{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .bj-state button{flex:1;min-width:70px;padding:9px;font-size:13px}
+  .bj-state button.win{background:linear-gradient(180deg,#5fd98f,#2fae67);color:#04210f}
+  .bj-state button.bj{background:linear-gradient(180deg,#f1d684,var(--gold));color:var(--ink)}
+  .bj-state button.lose{background:linear-gradient(180deg,#ef6f64,var(--red));color:#fff}
+  .bj-state button.push{background:#1b2f23;color:var(--text);border:1px solid var(--line)}
+  .hint{font-size:12px;color:var(--muted);line-height:1.5;margin-top:8px}
+  .empty{text-align:center;color:var(--muted);padding:24px 8px;font-size:14px}
+  .log{font-size:12px;color:var(--muted);max-height:160px;overflow-y:auto}
+  .log div{padding:4px 0;border-bottom:1px solid #15271c}
+  .log .amt-up{color:var(--green)}.log .amt-dn{color:var(--red)}
+  .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#0c1812;border:1px solid var(--gold-dim);
+    color:var(--gold);padding:10px 18px;border-radius:999px;font-size:13px;z-index:200;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%;text-align:center}
+  .toast.show{opacity:1}
+  .toast.err{border-color:var(--red);color:#ffd7d2}
+  .sec-title{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:6px 0 10px}
+  .splitline{display:flex;align-items:center;gap:8px;margin:8px 0}.splitline .ln{flex:1;height:1px;background:var(--line)}
+  .splitline .tx{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+  .seg{display:flex;gap:8px;margin:10px 0 16px}
+  .seg button{flex:1;background:#0c1812;color:var(--muted);border:1px solid var(--line)}
+  .seg button.active{background:var(--panel-2);color:var(--gold);border-color:var(--gold-dim)}
+  .status{font-size:11px;color:var(--muted);text-align:center;margin-top:10px}
+  .status .live{color:var(--green)} .status .off{color:var(--red)}
+  .big-code{font-size:34px;font-weight:800;letter-spacing:8px;color:var(--gold);text-align:center;margin:6px 0}
+  .copy-row{display:flex;gap:8px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="suits">♠<span class="r">♥</span>♣<span class="r">♦</span></div>
+    <div><h1>Chip Bank</h1><div class="sub">Real cards, real friends — live digital chips.</div></div>
+  </div>
+
+  <!-- ============ LANDING ============ -->
+  <div id="landing">
+    <div class="seg">
+      <button id="segCreate" class="active" onclick="setLanding('create')">Host a Game</button>
+      <button id="segJoin" onclick="setLanding('join')">Join a Game</button>
+    </div>
+
+    <div id="createForm" class="card">
+      <div class="sec-title">Host a New Game</div>
+      <label>Your name</label>
+      <input id="hostName" type="text" placeholder="e.g. Yousef" autocomplete="off" maxlength="24">
+      <div style="height:12px"></div>
+      <label>Starting chips per player</label>
+      <input id="startChips" type="number" inputmode="numeric" value="1000" min="1">
+      <div style="height:16px"></div>
+      <button style="width:100%" onclick="createGame()">Create Game &amp; Get Code</button>
+      <div class="hint">You'll get a 4-letter room code to share. Everyone opens this site, taps <b>Join</b>, and enters the code.</div>
+    </div>
+
+    <div id="joinForm" class="card" style="display:none">
+      <div class="sec-title">Join a Game</div>
+      <label>Room code</label>
+      <input id="joinCode" type="text" placeholder="ABCD" maxlength="4" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-size:22px;text-align:center">
+      <div style="height:12px"></div>
+      <label>Your name</label>
+      <input id="joinName" type="text" placeholder="e.g. Sara" autocomplete="off" maxlength="24">
+      <div style="height:16px"></div>
+      <button style="width:100%" onclick="joinGame()">Join Game</button>
+    </div>
+  </div>
+
+  <!-- ============ CODE SHARE (host, right after create) ============ -->
+  <div id="shareView" style="display:none">
+    <div class="card">
+      <div class="sec-title">Your game is ready</div>
+      <div class="hint" style="margin-top:0">Share this code with everyone at the table:</div>
+      <div class="big-code" id="shareCode">----</div>
+      <div class="copy-row">
+        <button class="ghost sm" onclick="copyCode()">Copy code</button>
+        <button class="ghost sm" onclick="copyLink()">Copy link</button>
+      </div>
+      <div style="height:14px"></div>
+      <button style="width:100%" onclick="enterGame()">Enter the Table ▸</button>
+    </div>
+  </div>
+
+  <!-- ============ GAME ============ -->
+  <div id="game" style="display:none">
+    <div class="roombar">
+      <div><div class="lab">Room</div><div class="code" id="roomCode">----</div></div>
+      <div style="text-align:right">
+        <div class="you-tag" id="youTag">—</div>
+        <button class="ghost tiny" onclick="copyLink()" style="margin-top:4px">Invite</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button id="tabPoker" class="active" onclick="requestMode('poker')">♠ Poker</button>
+      <button id="tabBJ" onclick="requestMode('blackjack')">♣ Blackjack</button>
+    </div>
+
+    <!-- POKER -->
+    <div id="pokerView">
+      <div class="pot">
+        <div class="lab">Pot</div>
+        <div class="amt"><span class="c" id="potAmt">0</span></div>
+        <div id="potCtrls" style="margin-top:12px;display:flex;gap:8px;justify-content:center"></div>
+      </div>
+      <div id="pokerPlayers" class="plist"></div>
+    </div>
+
+    <!-- BLACKJACK -->
+    <div id="bjView" style="display:none">
+      <div class="card" id="dealerBox" style="padding:14px"></div>
+      <div id="bjPlayers" class="plist"></div>
+    </div>
+
+    <div class="toolbar" id="toolbar"></div>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+
+<button class="help-fab" onclick="openRules()" title="Rules">?</button>
+<div id="toast" class="toast"></div>
+<div id="overlay" class="overlay" onclick="if(event.target===this)closeAll()"><div class="sheet" id="sheet"></div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => Math.round(n).toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let ME = { room:null, token:null, you:null, isHost:false };
+let S = null;            // latest server state
+let es = null;           // EventSource
+
+/* ---------------- session persistence ---------------- */
+function saveSession(){ try{ localStorage.setItem('chipbank_session', JSON.stringify(ME)); }catch(e){} }
+function clearSession(){ try{ localStorage.removeItem('chipbank_session'); }catch(e){} }
+function loadSession(){ try{ return JSON.parse(localStorage.getItem('chipbank_session')||'null'); }catch(e){ return null; } }
+
+/* ---------------- landing ---------------- */
+function setLanding(which){
+  $('segCreate').classList.toggle('active',which==='create');
+  $('segJoin').classList.toggle('active',which==='join');
+  $('createForm').style.display = which==='create'?'':'none';
+  $('joinForm').style.display = which==='join'?'':'none';
+}
+
+async function api(path, body){
+  const r = await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data = await r.json().catch(()=>({error:'Network error'}));
+  if(!r.ok) throw new Error(data.error||'Error');
+  return data;
+}
+
+async function createGame(){
+  const hostName = $('hostName').value.trim();
+  const startChips = parseInt($('startChips').value,10);
+  if(!hostName){ toast('Enter your name',1); return; }
+  if(!startChips||startChips<1){ toast('Enter a valid starting amount',1); return; }
+  try{
+    const d = await api('/api/create',{hostName,startChips});
+    ME = { room:d.roomCode, token:d.token, you:d.playerId, isHost:true };
+    saveSession();
+    $('shareCode').textContent = d.roomCode;
+    $('landing').style.display='none';
+    $('shareView').style.display='';
+  }catch(e){ toast(e.message,1); }
+}
+
+async function joinGame(){
+  const roomCode = $('joinCode').value.trim().toUpperCase();
+  const name = $('joinName').value.trim();
+  if(roomCode.length<4){ toast('Enter the 4-letter code',1); return; }
+  if(!name){ toast('Enter your name',1); return; }
+  try{
+    const d = await api('/api/join',{roomCode,name});
+    ME = { room:d.roomCode, token:d.token, you:d.playerId, isHost:false };
+    saveSession();
+    enterGame();
+  }catch(e){ toast(e.message,1); }
+}
+
+function enterGame(){
+  $('landing').style.display='none';
+  $('shareView').style.display='none';
+  $('game').style.display='';
+  $('roomCode').textContent = ME.room;
+  connect();
+}
+
+/* ---------------- live connection ---------------- */
+function connect(){
+  if(es) es.close();
+  setStatus(false);
+  es = new EventSource(`/events?room=${encodeURIComponent(ME.room)}&token=${encodeURIComponent(ME.token)}`);
+  es.addEventListener('hello', e=>{
+    const d = JSON.parse(e.data);
+    ME.you = d.you; ME.isHost = d.isHost; saveSession();
+  });
+  es.addEventListener('state', e=>{ S = JSON.parse(e.data); setStatus(true); render(); });
+  es.addEventListener('ended', ()=>{ toast('The host ended the game.',0); clearSession(); setTimeout(()=>location.reload(),1200); });
+  es.onopen = ()=> setStatus(true);
+  es.onerror = ()=>{
+    setStatus(false);
+    // if the room is gone (server restarted / ended), EventSource keeps retrying;
+    // verify with a quick probe so we can bounce the user back to landing.
+  };
+}
+function setStatus(live){
+  $('status').innerHTML = live
+    ? 'Connected · <span class="live">live</span>'
+    : 'Reconnecting… <span class="off">offline</span>';
+}
+
+async function act(action, payload){
+  try{
+    await api('/api/action',{roomCode:ME.room,token:ME.token,action,payload:payload||{}});
+  }catch(e){ toast(e.message,1); }
+}
+
+/* ---------------- render ---------------- */
+function render(){
+  if(!S) return;
+  // tabs
+  $('tabPoker').classList.toggle('active',S.mode==='poker');
+  $('tabBJ').classList.toggle('active',S.mode==='blackjack');
+  $('pokerView').style.display = S.mode==='poker'?'':'none';
+  $('bjView').style.display = S.mode==='blackjack'?'':'none';
+  // you tag
+  const me = S.players.find(p=>p.id===ME.you);
+  $('youTag').innerHTML = me ? `You: <b style="color:var(--gold)">${esc(me.name)}</b> · ${fmt(me.balance)}${ME.isHost?' · <span style="color:var(--blue)">host</span>':''}` : '—';
+
+  if(S.mode==='poker') renderPoker(); else renderBlackjack();
+  renderToolbar();
+}
+
+function renderPoker(){
+  $('potAmt').textContent = fmt(S.pot);
+  // pot controls (host only)
+  const pc = $('potCtrls');
+  if(ME.isHost){
+    pc.innerHTML = `<button class="blue sm" ${S.pot<=0?'disabled':''} onclick="openAward()">Award Pot ▸</button>
+      <button class="ghost sm" onclick="act('newhand')">New Hand</button>`;
+  } else {
+    pc.innerHTML = `<span class="hint" style="margin-top:0">The host pays out the pot.</span>`;
+  }
+  const c = $('pokerPlayers'); c.innerHTML='';
+  S.players.forEach(p=>{
+    const isMe = p.id===ME.you;
+    const canAct = isMe || ME.isHost;
+    const el = document.createElement('div');
+    el.className = 'pl'+(p.folded?' folded':'')+(isMe?' me':'');
+    el.innerHTML = `
+      <div class="pl-top">
+        <div class="pl-name">
+          <span class="dot ${p.connected?'on':''}"></span>
+          <span class="nm">${esc(p.name)}</span>
+          ${isMe?'<span class="badge you">You</span>':''}
+          ${p.id===S.hostId?'<span class="badge host">Host</span>':''}
+          ${p.folded?'':'<span class="badge in">in</span>'}
+        </div>
+        <div class="pl-bal">${fmt(p.balance)}</div>
+      </div>
+      <div class="pl-meta">In pot this hand: <b style="color:#cfe">${fmt(p.inPot)}</b></div>
+      ${canAct?`
+      <div class="bet-row">
+        <input type="number" inputmode="numeric" id="bet_${p.id}" placeholder="amount" min="1">
+        <button class="sm shrink" onclick="doBet('${p.id}')">Bet</button>
+        <button class="ghost sm shrink" onclick="act('allin',{playerId:'${p.id}'})">All-in</button>
+      </div>
+      <div class="quick">
+        ${[5,10,25,50,100].map(a=>`<button onclick="quickBet('${p.id}',${a})">+${a}</button>`).join('')}
+        <button class="${p.folded?'':'danger'} tiny" style="margin-left:auto" onclick="act('${p.folded?'unfold':'fold'}',{playerId:'${p.id}'})">${p.folded?'Un-fold':'Fold'}</button>
+      </div>`:''}
+    `;
+    c.appendChild(el);
+  });
+}
+
+function doBet(pid){
+  const inp = $('bet_'+pid); const a = parseInt(inp.value,10);
+  if(!a||a<1){ toast('Enter an amount',1); return; }
+  act('bet',{playerId:pid,amount:a}); inp.value='';
+}
+function quickBet(pid,a){ act('bet',{playerId:pid,amount:a}); }
+
+function renderBlackjack(){
+  const dealer = S.players.find(p=>p.id===S.dealerId);
+  // dealer box
+  const db = $('dealerBox');
+  if(ME.isHost){
+    db.innerHTML = `<label>Dealer / Bank</label>
+      <select id="dealerSel" onchange="act('setdealer',{dealerId:this.value})"
+        style="width:100%;background:#0c1812;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:12px;font-size:16px">
+        ${S.players.map(p=>`<option value="${p.id}" ${p.id===S.dealerId?'selected':''}>${esc(p.name)}</option>`).join('')}
+      </select>
+      <div class="hint">Bets settle against the dealer's stack. Blackjack pays 3:2. You (host) settle each hand.</div>`;
+  } else {
+    db.innerHTML = `<label>Dealer / Bank</label>
+      <div style="font-size:18px;font-weight:700">${dealer?esc(dealer.name):'—'} ${dealer?`<span style="color:var(--gold)">· ${fmt(dealer.balance)}</span>`:''}</div>
+      <div class="hint">Place your bet below. The dealer settles the hand against you.</div>`;
+  }
+  const c = $('bjPlayers'); c.innerHTML='';
+  S.players.filter(p=>p.id!==S.dealerId).forEach(p=>{
+    const isMe = p.id===ME.you;
+    const canAct = isMe || ME.isHost;
+    const el = document.createElement('div'); el.className='pl'+(isMe?' me':'');
+    let body;
+    if(p.bjBet>0){
+      body = `<div class="pl-meta">Bet: <b style="color:var(--gold)">${fmt(p.bjBet)}</b>${ME.isHost?' — settle:':' — waiting for dealer to settle'}</div>
+        ${ME.isHost?`<div class="bj-state">
+          <button class="win" onclick="act('bjresolve',{playerId:'${p.id}',outcome:'win'})">Win 1:1</button>
+          <button class="bj" onclick="act('bjresolve',{playerId:'${p.id}',outcome:'bj'})">BJ 3:2</button>
+          <button class="push" onclick="act('bjresolve',{playerId:'${p.id}',outcome:'push'})">Push</button>
+          <button class="lose" onclick="act('bjresolve',{playerId:'${p.id}',outcome:'lose'})">Lose</button>
+        </div>`:''}`;
+    } else if(canAct){
+      body = `<div class="bet-row">
+          <input type="number" inputmode="numeric" id="bjbet_${p.id}" placeholder="place bet" min="1">
+          <button class="sm shrink" onclick="doBjBet('${p.id}')">Bet</button>
+        </div>
+        <div class="quick">${[5,10,25,50,100].map(a=>`<button onclick="act('bjbet',{playerId:'${p.id}',amount:${a}})">+${a}</button>`).join('')}</div>`;
+    } else {
+      body = `<div class="pl-meta">No bet placed yet.</div>`;
+    }
+    el.innerHTML = `<div class="pl-top">
+        <div class="pl-name"><span class="dot ${p.connected?'on':''}"></span><span class="nm">${esc(p.name)}</span>${isMe?'<span class="badge you">You</span>':''}</div>
+        <div class="pl-bal">${fmt(p.balance)}</div></div>${body}`;
+    c.appendChild(el);
+  });
+  if(S.players.length<2) c.innerHTML += '<div class="empty">Waiting for more players to join…</div>';
+}
+function doBjBet(pid){
+  const a = parseInt($('bjbet_'+pid).value,10);
+  if(!a||a<1){ toast('Enter a bet',1); return; }
+  act('bjbet',{playerId:pid,amount:a});
+}
+
+function renderToolbar(){
+  const t = $('toolbar'); t.innerHTML='';
+  if(ME.isHost){
+    t.innerHTML = `
+      <button class="ghost sm" onclick="openManage()">Manage Players</button>
+      <button class="ghost sm" ${S.canUndo?'':'disabled'} onclick="act('undo')">↺ Undo</button>
+      <button class="ghost sm" onclick="openLog()">History</button>
+      <button class="danger sm" onclick="endGame()">End Game</button>`;
+  } else {
+    t.innerHTML = `
+      <button class="ghost sm" onclick="openLog()">History</button>
+      <button class="ghost sm" onclick="leaveGame()">Leave</button>`;
+  }
+}
+function requestMode(m){
+  if(!ME.isHost){ toast('Only the host switches the game',1); return; }
+  act('setmode',{mode:m});
+}
+
+/* ---------------- award pot ---------------- */
+let awardSel = new Set();
+function openAward(){
+  if(S.pot<=0) return;
+  awardSel = new Set();
+  const live = S.players.filter(p=>!p.folded);
+  if(live.length===1) awardSel.add(live[0].id);
+  drawAward(); openSheet();
+}
+function drawAward(){
+  const opts = S.players.map(p=>{
+    const sel = awardSel.has(p.id);
+    return `<div class="win-opt ${sel?'sel':''}" onclick="toggleWin('${p.id}')">
+      <div><b>${esc(p.name)}</b> <span style="color:var(--muted);font-size:12px">· ${fmt(p.balance)}</span></div>
+      <div class="ck">${sel?'✓':''}</div></div>`;
+  }).join('');
+  const n = awardSel.size, each = n?Math.floor(S.pot/n):0, rem = n?S.pot-each*n:0;
+  $('sheet').innerHTML = `<button class="close" onclick="closeAll()">✕</button>
+    <h2>Award the Pot</h2>
+    <div class="sub">Pot: <b style="color:var(--gold)">${fmt(S.pot)}</b> — pick the winner(s).</div>
+    <div class="win-list">${opts}</div>
+    ${n>1?`<div class="hint">Split ${n} ways: ${fmt(each)} each${rem?` (+${rem} odd chip to the first)`:''}.</div>`:''}
+    <button style="width:100%;margin-top:6px" ${n?'':'disabled'} onclick="confirmAward()">Pay out ${n?fmt(S.pot):''} </button>`;
+}
+function toggleWin(pid){ awardSel.has(pid)?awardSel.delete(pid):awardSel.add(pid); drawAward(); }
+function confirmAward(){ if(!awardSel.size) return; act('award',{winners:[...awardSel]}); closeAll(); }
+
+/* ---------------- manage ---------------- */
+function openManage(){
+  const rows = S.players.map(p=>`
+    <div class="pl" style="margin-bottom:10px">
+      <div class="row">
+        <input type="text" id="nm_${p.id}" value="${esc(p.name)}" maxlength="24">
+        <input type="number" id="bl_${p.id}" value="${Math.round(p.balance)}" style="flex:0 0 120px">
+      </div>
+      <div class="quick" style="margin-top:10px">
+        <button class="sm" onclick="saveManage('${p.id}')">Save</button>
+        <button class="ghost sm" onclick="act('topup',{playerId:'${p.id}'})">+${fmt(S.startChips)} rebuy</button>
+        ${p.id!==S.hostId?`<button class="danger sm" style="margin-left:auto" onclick="if(confirm('Remove ${esc(p.name).replace(/'/g,'')}?'))act('removeplayer',{playerId:'${p.id}'})">Remove</button>`:'<span class="badge host" style="margin-left:auto;align-self:center">host</span>'}
+      </div>
+    </div>`).join('');
+  $('sheet').innerHTML = `<button class="close" onclick="closeAll()">✕</button>
+    <h2>Manage Players</h2>
+    <div class="sub">Rename, correct a balance, or rebuy. New players join by entering the code themselves.</div>
+    <div style="height:12px"></div>${rows}`;
+  openSheet();
+}
+function saveManage(pid){
+  const name = $('nm_'+pid).value.trim();
+  const balance = parseInt($('bl_'+pid).value,10);
+  act('manage',{playerId:pid,name,balance:isNaN(balance)?undefined:balance});
+  toast('Saved');
+}
+
+/* ---------------- history ---------------- */
+function openLog(){
+  const rows = (S.log&&S.log.length)? S.log.map(l=>{
+    const cls = l.k==='up'?'amt-up':l.k==='dn'?'amt-dn':'';
+    return `<div class="${cls}">${esc(l.t)}</div>`;
+  }).join('') : '<div class="empty">No actions yet.</div>';
+  $('sheet').innerHTML = `<button class="close" onclick="closeAll()">✕</button>
+    <h2>History</h2><div class="sub">Most recent first.</div><div style="height:12px"></div>
+    <div class="log">${rows}</div>`;
+  openSheet();
+}
+
+/* ---------------- end / leave ---------------- */
+function endGame(){ if(confirm('End the game for everyone? This clears the room.')) act('endgame'); }
+function leaveGame(){ if(confirm('Leave this game? You can rejoin with the code.')){ clearSession(); if(es)es.close(); location.reload(); } }
+
+/* ---------------- rules ---------------- */
+let rulesTab='poker';
+function openRules(){ drawRules(); openSheet(); }
+function drawRules(){
+  $('sheet').innerHTML = `<button class="close" onclick="closeAll()">✕</button>
+    <h2>How to Play</h2>
+    <div class="rules-tabs">
+      <button class="${rulesTab==='poker'?'active':''}" onclick="rulesTab='poker';drawRules()">♠ Poker</button>
+      <button class="${rulesTab==='bj'?'active':''}" onclick="rulesTab='bj';drawRules()">♣ Blackjack</button>
+      <button class="${rulesTab==='app'?'active':''}" onclick="rulesTab='app';drawRules()">★ This App</button>
+    </div>
+    <div class="rules-body">${rulesTab==='poker'?pokerRules():rulesTab==='bj'?bjRules():appRules()}</div>`;
+}
+function pokerRules(){return `
+  <p>The basics of <b>Texas Hold'em</b>, the most common home-game poker. You play the cards in real life — the app just tracks chips.</p>
+  <h3>Goal</h3><p>Make the best five-card hand, or get everyone else to fold. Win the chips in the pot.</p>
+  <h3>The Flow of a Hand</h3>
+  <ul>
+    <li><b>Blinds:</b> the two players left of the dealer post a small &amp; big blind to seed the pot.</li>
+    <li><b>Hole cards:</b> everyone gets 2 private cards.</li>
+    <li><b>Pre-flop:</b> first betting round.</li>
+    <li><b>The Flop:</b> 3 community cards face up, then bet.</li>
+    <li><b>The Turn:</b> a 4th community card, then bet.</li>
+    <li><b>The River:</b> a 5th community card, final betting round.</li>
+    <li><b>Showdown:</b> remaining players reveal; best 5-card hand wins.</li>
+  </ul>
+  <h3>Your Options</h3>
+  <ul><li><b>Check</b> — bet nothing (if no one has bet).</li><li><b>Bet / Raise</b> — put chips in.</li>
+  <li><b>Call</b> — match the current bet.</li><li><b>Fold</b> — give up the hand.</li><li><b>All-in</b> — push your whole stack.</li></ul>
+  <h3>Hand Rankings (high → low)</h3>
+  ${handRankings()}`;}
+const HANDS=[
+  ['Royal Flush','As Ks Qs Js Ts','A-K-Q-J-10, all one suit'],
+  ['Straight Flush','9h 8h 7h 6h 5h','Five in a row, one suit'],
+  ['Four of a Kind','Ks Kh Kd Kc 7s','All four of one rank'],
+  ['Full House','Qs Qh Qd 4c 4s','Three of a kind + a pair'],
+  ['Flush','Ac Jc 8c 5c 2c','Five of one suit'],
+  ['Straight','8s 7h 6d 5c 4s','Five in a row, mixed suits'],
+  ['Three of a Kind','5s 5h 5d Kc 2s','Three of one rank'],
+  ['Two Pair','Js Jh 4d 4c 9s','Two different pairs'],
+  ['One Pair','Ts Th Kd 6c 2s','Two of one rank'],
+  ['High Card','As Jh 8d 5c 2s','None of the above']
+];
+function miniCards(str){
+  const SU={s:['♠',0],h:['♥',1],d:['♦',1],c:['♣',0]};
+  return `<div class="cards">`+str.split(' ').map(tok=>{
+    let r=tok.slice(0,-1); const su=tok.slice(-1);
+    if(r==='T') r='10';
+    const [sym,red]=SU[su];
+    return `<div class="pcard ${red?'red':''}"><span class="r">${r}</span><span class="s">${sym}</span></div>`;
+  }).join('')+`</div>`;
+}
+function handRankings(){
+  return HANDS.map(([name,cards,desc])=>`
+    <div class="hand-row">
+      <div class="label"><span class="name">${name}</span><span class="desc">${desc}</span></div>
+      ${miniCards(cards)}
+    </div>`).join('');
+}
+function bjRules(){return `
+  <p><b>Blackjack (21)</b> is played against the <b>Dealer</b>, not other players. The host picks the dealer; bets pay from and into the dealer's stack.</p>
+  <h3>Goal</h3><p>Get closer to <b>21</b> than the dealer without going over (a "bust").</p>
+  <h3>Card Values</h3><ul><li>2–10 = face value.</li><li>J, Q, K = 10.</li><li>Ace = 1 or 11.</li></ul>
+  <h3>The Flow</h3>
+  <ul><li>Each player places a <b>bet</b>.</li><li>Everyone gets 2 cards; dealer gets 2 (one hidden).</li>
+  <li><b>Blackjack</b> = Ace + 10-value on the first two cards — pays <b>3:2</b>.</li>
+  <li>On your turn: <b>Hit</b> (take a card) or <b>Stand</b> (stop).</li>
+  <li>Over 21 = <b>bust</b>, instant loss.</li><li>Dealer plays last, usually hitting to 17+.</li></ul>
+  <h3>Settling</h3>
+  <ul><li><b>Win 1:1</b> — beat the dealer: stake back + same again.</li>
+  <li><b>BJ 3:2</b> — natural 21: stake back + 1.5×.</li>
+  <li><b>Push</b> — tie: bet returned.</li><li><b>Lose</b> — dealer takes your bet.</li></ul>`;}
+function appRules(){return `
+  <p>This app is a shared <b>chip bank</b> — you deal and play with real cards. Everyone joins the same room on their own phone and sees balances update live.</p>
+  <h3>Roles</h3>
+  <ul><li>The <b>Host</b> is the banker: switches Poker/Blackjack, awards pots, settles blackjack, manages players, can undo.</li>
+  <li><b>Players</b> control their own seat: place their own bets, go all-in, fold.</li></ul>
+  <h3>Poker</h3>
+  <ul><li>Tap <b>Bet</b> / the quick buttons / <b>All-in</b> to push your chips into the <b>Pot</b>.</li>
+  <li><b>Fold</b> dims you for the hand. The host hits <b>Award Pot</b> and picks the winner(s) — split pots divide evenly.</li>
+  <li><b>New Hand</b> clears the table for the next deal.</li></ul>
+  <h3>Blackjack</h3>
+  <ul><li>Host picks the <b>Dealer</b>. Everyone else bets, then the host resolves each hand: Win / Blackjack / Push / Lose.</li></ul>
+  <h3>Good to know</h3>
+  <ul><li>Green dot = that player is connected.</li>
+  <li>Refreshing keeps your seat — your phone remembers the room.</li>
+  <li>Late friends can join anytime with the code (<b>Invite</b> button up top).</li></ul>`;}
+
+/* ---------------- misc ---------------- */
+function openSheet(){ $('overlay').classList.add('show'); }
+function closeAll(){ $('overlay').classList.remove('show'); }
+function copyCode(){ navigator.clipboard?.writeText(ME.room).then(()=>toast('Code copied')); }
+function copyLink(){
+  const link = `${location.origin}/?room=${ME.room}`;
+  navigator.clipboard?.writeText(link).then(()=>toast('Invite link copied')).catch(()=>toast(link));
+}
+let toastT;
+function toast(msg,isErr){
+  const t = $('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':'');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.className='toast',2000);
+}
+
+/* ---------------- boot ---------------- */
+(function init(){
+  // prefill join code from ?room=
+  const params = new URLSearchParams(location.search);
+  const roomParam = params.get('room');
+  const saved = loadSession();
+
+  if(saved && saved.token && saved.room){
+    // try to resume an existing session
+    ME = saved;
+    fetch(`/healthz`).then(()=>{
+      enterGame(); // SSE will 403/404 and we handle via probe below
+      probeRoom();
+    });
+    return;
+  }
+  if(roomParam){
+    setLanding('join');
+    $('joinCode').value = roomParam.toUpperCase().slice(0,4);
+    $('joinName').focus();
+  }
+})();
+
+// If resuming, confirm the room still exists; if not, bounce to landing.
+async function probeRoom(){
+  try{
+    const r = await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({roomCode:ME.room,token:ME.token,action:'__noop__'})});
+    // unknown action returns 400 with "Unknown action" but proves room+token are valid.
+    if(r.status===404 || r.status===403){ throw new Error('gone'); }
+  }catch(e){
+    clearSession();
+    toast('That game has ended.',1);
+    setTimeout(()=>location.reload(),1200);
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "chip-bank",
+  "version": "1.0.0",
+  "description": "Multiplayer poker & blackjack chip bank — real cards, live digital chips.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
