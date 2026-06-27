@@ -22,17 +22,19 @@ const ROOM_TTL  = 24 * 60 * 60 * 1000; // forget idle rooms after 24h
 /* ---------------- room store ---------------- */
 const rooms = new Map(); // code -> room
 
-function newRoom(code, hostName, startChips) {
+function newRoom(code, hostName, startChips, sb, bb) {
   return {
     code,
     startChips,
+    sb: sb || 25,
+    bb: bb || 50,
     mode: 'poker',
     hostId: null,
     players: [],     // {id, name, balance, token}
-    pot: 0,
-    bets: {},        // playerId -> chips in pot this hand
-    folded: {},      // playerId -> true
-    dealerId: null,
+    pot: 0,           // poker: total committed this hand (display)
+    buttonId: null,   // dealer button carries across hands
+    hand: null,       // active poker hand state (see startHand)
+    dealerId: null,   // blackjack dealer
     bjBets: {},       // playerId -> current blackjack bet
     log: [],
     history: [],     // undo snapshots
@@ -65,8 +67,9 @@ function persist() {
     const out = {};
     for (const [code, r] of rooms) {
       out[code] = {
-        code: r.code, startChips: r.startChips, mode: r.mode, hostId: r.hostId,
-        players: r.players, pot: r.pot, bets: r.bets, folded: r.folded,
+        code: r.code, startChips: r.startChips, sb: r.sb, bb: r.bb,
+        mode: r.mode, hostId: r.hostId, players: r.players, pot: r.pot,
+        buttonId: r.buttonId, hand: r.hand,
         dealerId: r.dealerId, bjBets: r.bjBets, log: r.log,
         history: r.history, updated: r.updated
       };
@@ -102,8 +105,8 @@ function addLog(room, text, kind) {
 }
 function snapshot(room) {
   room.history.push(JSON.stringify({
-    pot: room.pot, bets: room.bets, folded: room.folded, bjBets: room.bjBets,
-    dealerId: room.dealerId, log: room.log,
+    pot: room.pot, buttonId: room.buttonId, hand: room.hand,
+    bjBets: room.bjBets, dealerId: room.dealerId, log: room.log,
     balances: room.players.map(p => ({ id: p.id, b: p.balance }))
   }));
   if (room.history.length > 80) room.history.shift();
@@ -112,23 +115,311 @@ function snapshot(room) {
 /* state sent to clients (no tokens, no client handles) */
 function publicState(room) {
   const connected = new Set([...room.clients].map(c => c._pid));
+  const h = room.hand;
+  let pots = null;
+  if (h && h.bettingDone) {
+    pots = h.pots.map(pot => ({
+      amount: pot.amount,
+      eligible: pot.eligible.map(id => { const pl = getP(room, id); return pl ? pl.name : '?'; }),
+      eligibleIds: pot.eligible
+    }));
+  }
   return {
     code: room.code,
     startChips: room.startChips,
+    sb: room.sb, bb: room.bb,
     mode: room.mode,
     hostId: room.hostId,
     pot: room.pot,
     dealerId: room.dealerId,
     canUndo: room.history.length > 0,
-    players: room.players.map(p => ({
-      id: p.id, name: p.name, balance: fmt(p.balance),
-      inPot: room.bets[p.id] || 0,
-      folded: !!room.folded[p.id],
-      bjBet: room.bjBets[p.id] || 0,
-      connected: connected.has(p.id)
-    })),
+    hand: h ? {
+      active: h.active, bettingDone: !!h.bettingDone, street: h.street,
+      message: h.message, pot: h.pot, currentBet: h.currentBet,
+      sb: h.sb, bb: h.bb, buttonId: h.buttonId, sbId: h.sbId, bbId: h.bbId,
+      toActId: h.toActId, pots
+    } : null,
+    players: room.players.map(p => {
+      const seated = !!(h && h.order.includes(p.id));
+      return {
+        id: p.id, name: p.name, balance: fmt(p.balance),
+        connected: connected.has(p.id),
+        // poker per-hand
+        seated,
+        inHand: !!(h && h.inHand[p.id]),
+        folded: !!(h && seated && !h.inHand[p.id]),
+        allIn: !!(h && h.allIn[p.id]),
+        streetBet: (h && h.streetBet[p.id]) || 0,
+        committed: (h && h.contrib[p.id]) || 0,
+        isButton: !!(h && h.buttonId === p.id),
+        isSB: !!(h && h.sbId === p.id),
+        isBB: !!(h && h.bbId === p.id),
+        isToAct: !!(h && h.toActId === p.id),
+        // blackjack
+        bjBet: room.bjBets[p.id] || 0
+      };
+    }),
     log: room.log.slice(0, 80)
   };
+}
+
+/* ============================================================
+   POKER ENGINE — round-based no-limit Hold'em (casual raises)
+   ============================================================ */
+function pokerContribute(room, pid, amount) {
+  const h = room.hand, p = getP(room, pid);
+  const pay = Math.min(amount, p.balance);
+  p.balance -= pay;
+  h.streetBet[pid] = (h.streetBet[pid] || 0) + pay;
+  h.contrib[pid] = (h.contrib[pid] || 0) + pay;
+  h.pot += pay;
+  room.pot = h.pot;
+  if (p.balance <= 0) h.allIn[pid] = true;
+  return pay;
+}
+function nextInHand(room, fromId) {
+  const h = room.hand, n = h.order.length;
+  const start = h.order.indexOf(fromId);
+  for (let i = 1; i <= n; i++) {
+    const id = h.order[(start + i) % n];
+    if (h.inHand[id] && !h.allIn[id]) return id;
+  }
+  return null;
+}
+function firstAfterButton(room) {
+  // first player still in hand & able to act, starting left of the button
+  const h = room.hand, n = h.order.length;
+  const bIdx = h.order.indexOf(h.buttonId);
+  for (let i = 1; i <= n; i++) {
+    const id = h.order[(bIdx + i) % n];
+    if (h.inHand[id] && !h.allIn[id]) return id;
+  }
+  return null;
+}
+function roundComplete(room) {
+  const h = room.hand;
+  const contenders = h.order.filter(id => h.inHand[id] && !h.allIn[id]);
+  if (contenders.length === 0) return true;
+  return contenders.every(id => h.acted[id] && h.streetBet[id] === h.currentBet);
+}
+function aliveCount(room) {
+  const h = room.hand;
+  return h.order.filter(id => h.inHand[id]).length;
+}
+function startHand(room) {
+  const seated = room.players.filter(p => p.balance > 0);
+  if (seated.length < 2) return { error: 'Need at least 2 players with chips.' };
+  snapshot(room);
+  const order = seated.map(p => p.id);
+  // rotate button to next seated player after the previous button
+  let buttonId;
+  if (room.buttonId && order.includes(room.buttonId)) {
+    const idx = order.indexOf(room.buttonId);
+    buttonId = order[(idx + 1) % order.length];
+  } else if (room.buttonId) {
+    // previous button not seated this hand — pick the next seated after their old slot
+    buttonId = order[0];
+  } else {
+    buttonId = order[0];
+  }
+  room.buttonId = buttonId;
+
+  const h = {
+    active: true, bettingDone: false, street: 'preflop',
+    sb: room.sb, bb: room.bb,
+    order, buttonId,
+    inHand: {}, allIn: {}, contrib: {}, streetBet: {}, acted: {},
+    currentBet: 0, lastAggressorId: null, toActId: null,
+    pot: 0, pots: [], message: '', result: ''
+  };
+  order.forEach(id => { h.inHand[id] = true; });
+  room.hand = h;
+  room.pot = 0;
+
+  const bIdx = order.indexOf(buttonId);
+  let sbId, bbId;
+  if (order.length === 2) {            // heads-up: button is SB
+    sbId = buttonId;
+    bbId = order[(bIdx + 1) % 2];
+  } else {
+    sbId = order[(bIdx + 1) % order.length];
+    bbId = order[(bIdx + 2) % order.length];
+  }
+  h.sbId = sbId; h.bbId = bbId;
+  pokerContribute(room, sbId, h.sb);
+  pokerContribute(room, bbId, h.bb);
+  h.currentBet = Math.max(h.streetBet[sbId], h.streetBet[bbId]);
+  // blinds are forced; posters still get to act (BB option), so leave acted=false
+  // first to act preflop: heads-up = button(SB); else left of BB
+  h.toActId = order.length === 2 ? buttonId : nextInHand(room, bbId);
+  addLog(room, `New hand · ${getP(room, buttonId).name} on the button · blinds ${h.sb}/${h.bb}`);
+  return { ok: true };
+}
+function advanceStreet(room) {
+  const h = room.hand;
+  const streets = ['preflop', 'flop', 'turn', 'river'];
+  const idx = streets.indexOf(h.street);
+  if (idx >= streets.length - 1) return showdown(room);
+  // need at least 2 players who can still bet to keep betting
+  const contenders = h.order.filter(id => h.inHand[id] && !h.allIn[id]);
+  if (contenders.length < 2) return showdown(room); // run remaining cards out
+  h.street = streets[idx + 1];
+  h.order.forEach(id => { h.streetBet[id] = 0; });
+  h.currentBet = 0; h.acted = {}; h.lastAggressorId = null;
+  h.toActId = firstAfterButton(room);
+  const names = { flop: 'the flop (3 cards)', turn: 'the turn (1 card)', river: 'the river (1 card)' };
+  h.message = 'Deal ' + names[h.street];
+  return { ok: true };
+}
+function showdown(room) {
+  const h = room.hand;
+  h.bettingDone = true;
+  h.toActId = null;
+  h.street = 'showdown';
+  h.pots = buildPots(room);
+  // auto-award any pot with a single eligible player
+  h.pots.forEach(pot => {
+    if (pot.eligible.length === 1) {
+      const p = getP(room, pot.eligible[0]);
+      addLog(room, `${p.name} won ${pot.amount} at showdown`, 'up');
+      p.balance += pot.amount; pot.awarded = true;
+    }
+  });
+  h.pots = h.pots.filter(pot => !pot.awarded);
+  h.message = h.pots.length ? 'Showdown — host awards the pot' : 'Hand complete';
+  if (h.pots.length === 0) endHand(room);
+  return { ok: true };
+}
+function buildPots(room) {
+  const h = room.hand;
+  const contribs = h.order.map(id => ({ id, amt: h.contrib[id] || 0 })).filter(x => x.amt > 0);
+  const levels = [...new Set(contribs.map(c => c.amt))].sort((a, b) => a - b);
+  const pots = [];
+  let prev = 0;
+  for (const lvl of levels) {
+    const slice = lvl - prev;
+    const contributors = contribs.filter(c => c.amt >= lvl);
+    const amount = slice * contributors.length;
+    const eligible = contributors.filter(c => h.inHand[c.id]).map(c => c.id);
+    if (amount > 0 && eligible.length) pots.push({ amount, eligible });
+    else if (amount > 0 && !eligible.length) { // all folded at this level — give to last main pot
+      if (pots.length) pots[pots.length - 1].amount += amount;
+    }
+    prev = lvl;
+  }
+  // merge consecutive pots with identical eligible sets
+  const merged = [];
+  for (const pot of pots) {
+    const last = merged[merged.length - 1];
+    if (last && last.eligible.length === pot.eligible.length &&
+        last.eligible.every(x => pot.eligible.includes(x))) last.amount += pot.amount;
+    else merged.push({ amount: pot.amount, eligible: pot.eligible.slice() });
+  }
+  return merged;
+}
+function checkAutoWin(room) {
+  const h = room.hand;
+  if (aliveCount(room) === 1) {
+    const id = h.order.find(x => h.inHand[x]);
+    const p = getP(room, id);
+    p.balance += h.pot;
+    addLog(room, `${p.name} won ${h.pot} (everyone else folded)`, 'up');
+    h.result = `${p.name} won ${h.pot}`;
+    endHand(room);
+    return true;
+  }
+  return false;
+}
+function endHand(room) {
+  const h = room.hand;
+  h.active = false; h.bettingDone = false; h.toActId = null;
+  h.street = 'done';
+  room.pot = 0;
+}
+function pokerMove(room, actor, payload) {
+  const h = room.hand;
+  if (!h || !h.active) return { error: 'No hand in progress.' };
+  const pid = h.toActId;
+  if (!pid) return { error: 'Not a betting moment.' };
+  const isHost = actor.id === room.hostId;
+  if (actor.id !== pid && !isHost) return { error: "It's not your turn." };
+  const p = getP(room, pid);
+  const move = payload.move;
+  const toCall = h.currentBet - (h.streetBet[pid] || 0);
+
+  snapshot(room);
+  if (move === 'fold') {
+    h.inHand[pid] = false; h.acted[pid] = true;
+    addLog(room, `${p.name} folds`);
+    if (checkAutoWin(room)) return { ok: true };
+  } else if (move === 'check') {
+    if (toCall > 0) { room.history.pop(); return { error: `You must call ${toCall} or fold.` }; }
+    h.acted[pid] = true;
+    addLog(room, `${p.name} checks`);
+  } else if (move === 'call') {
+    if (toCall <= 0) { room.history.pop(); return { error: 'Nothing to call — check instead.' }; }
+    const paid = pokerContribute(room, pid, toCall);
+    h.acted[pid] = true;
+    addLog(room, `${p.name} calls ${paid}${h.allIn[pid] ? ' (all in)' : ''}`, 'dn');
+  } else if (move === 'raise') {
+    const target = Math.floor(Number(payload.amount)); // raise-TO (total this street)
+    const maxTo = (h.streetBet[pid] || 0) + p.balance;
+    if (isNaN(target) || target <= h.currentBet) { room.history.pop(); return { error: `Raise must be more than ${h.currentBet}.` }; }
+    if (target > maxTo) { room.history.pop(); return { error: `${p.name} can only make it ${maxTo}.` }; }
+    const pay = target - (h.streetBet[pid] || 0);
+    pokerContribute(room, pid, pay);
+    h.currentBet = h.streetBet[pid];
+    h.lastAggressorId = pid;
+    h.order.forEach(id => { h.acted[id] = false; });
+    h.acted[pid] = true;
+    addLog(room, `${p.name} raises to ${h.currentBet}${h.allIn[pid] ? ' (all in)' : ''}`, 'dn');
+  } else if (move === 'allin') {
+    if (p.balance <= 0) { room.history.pop(); return { error: 'No chips left.' }; }
+    const before = h.currentBet;
+    const paid = pokerContribute(room, pid, p.balance);
+    h.acted[pid] = true;
+    const myBet = h.streetBet[pid];
+    if (myBet > before) {           // counts as a raise
+      h.currentBet = myBet; h.lastAggressorId = pid;
+      h.order.forEach(id => { if (id !== pid) h.acted[id] = false; });
+      h.acted[pid] = true;
+    }
+    addLog(room, `${p.name} is ALL IN for ${paid}`, 'dn');
+  } else {
+    room.history.pop();
+    return { error: 'Unknown move.' };
+  }
+
+  if (h.active) {
+    if (roundComplete(room)) advanceStreet(room);
+    else h.toActId = nextInHand(room, pid);
+  }
+  return { ok: true };
+}
+function awardShowdown(room, payload) {
+  const h = room.hand;
+  if (!h || !h.bettingDone) return { error: 'No pot to award yet.' };
+  const awards = payload.awards || []; // [{potIndex, winners:[ids]}]
+  // validate every remaining pot has winners
+  for (let i = 0; i < h.pots.length; i++) {
+    const a = awards.find(x => x.potIndex === i);
+    if (!a || !a.winners || !a.winners.length) return { error: 'Pick a winner for every pot.' };
+    if (!a.winners.every(w => h.pots[i].eligible.includes(w))) return { error: 'Winner not eligible for that pot.' };
+  }
+  snapshot(room);
+  h.pots.forEach((pot, i) => {
+    const winners = awards.find(x => x.potIndex === i).winners;
+    const each = Math.floor(pot.amount / winners.length);
+    const rem = pot.amount - each * winners.length;
+    winners.forEach((w, j) => {
+      const p = getP(room, w);
+      const amt = each + (j === 0 ? rem : 0);
+      p.balance += amt;
+      addLog(room, `${p.name} won ${amt}${h.pots.length > 1 ? ' (pot ' + (i + 1) + ')' : ''}`, 'up');
+    });
+  });
+  endHand(room);
+  return { ok: true };
 }
 
 function broadcast(room) {
@@ -153,68 +444,27 @@ function applyAction(room, actor, action, payload = {}) {
 
   switch (action) {
 
-    /* ---- poker: a player bets their own chips (host may bet for anyone) ---- */
-    case 'bet': {
-      if (!ownsTarget) return { error: 'You can only bet your own chips.' };
-      const p = getP(room, targetId); if (!p) return { error: 'No such player.' };
-      let amt = Math.floor(Number(payload.amount));
-      if (!amt || amt < 1) return { error: 'Enter a valid amount.' };
-      if (amt > p.balance) return { error: `${p.name} only has ${fmt(p.balance)}.` };
-      snapshot(room);
-      p.balance -= amt;
-      room.bets[p.id] = (room.bets[p.id] || 0) + amt;
-      room.pot += amt;
-      delete room.folded[p.id];
-      addLog(room, `${p.name} bet ${amt} into the pot`, 'dn');
-      return { ok: true };
+    /* ---- poker betting engine ---- */
+    case 'starthand': {
+      if (!isHost) return { error: 'Only the host deals the next hand.' };
+      if (room.hand && room.hand.active) return { error: 'A hand is already in progress.' };
+      return startHand(room);
     }
-    case 'allin': {
-      if (!ownsTarget) return { error: 'Not your seat.' };
-      const p = getP(room, targetId); if (!p) return { error: 'No such player.' };
-      if (p.balance <= 0) return { error: 'No chips left.' };
-      snapshot(room);
-      const amt = p.balance;
-      p.balance = 0;
-      room.bets[p.id] = (room.bets[p.id] || 0) + amt;
-      room.pot += amt;
-      delete room.folded[p.id];
-      addLog(room, `${p.name} is ALL IN for ${amt}`, 'dn');
-      return { ok: true };
+    case 'pokermove': {
+      return pokerMove(room, actor, payload);
     }
-    case 'fold': {
-      if (!ownsTarget) return { error: 'Not your seat.' };
-      room.folded[targetId] = true;
-      return { ok: true };
+    case 'awardshowdown': {
+      if (!isHost) return { error: 'Only the host awards the pot.' };
+      return awardShowdown(room, payload);
     }
-    case 'unfold': {
-      if (!ownsTarget) return { error: 'Not your seat.' };
-      delete room.folded[targetId];
-      return { ok: true };
-    }
-
-    /* ---- poker: host distributes the pot ---- */
-    case 'award': {
-      if (!isHost) return { error: 'Only the host can award the pot.' };
-      const winners = (payload.winners || []).filter(id => getP(room, id));
-      if (!winners.length) return { error: 'Pick at least one winner.' };
-      if (room.pot <= 0) return { error: 'Pot is empty.' };
-      snapshot(room);
-      const each = Math.floor(room.pot / winners.length);
-      const rem = room.pot - each * winners.length;
-      winners.forEach((id, i) => {
-        const p = getP(room, id);
-        const amt = each + (i === 0 ? rem : 0);
-        p.balance += amt;
-        addLog(room, `${p.name} won ${amt} from the pot`, 'up');
-      });
-      room.pot = 0; room.bets = {}; room.folded = {};
-      return { ok: true };
-    }
-    case 'newhand': {
-      if (!isHost) return { error: 'Only the host can start a new hand.' };
-      snapshot(room);
-      room.pot = 0; room.bets = {}; room.folded = {};
-      addLog(room, 'New hand');
+    case 'setblinds': {
+      if (!isHost) return { error: 'Only the host sets blinds.' };
+      if (room.hand && room.hand.active) return { error: 'Finish the hand first.' };
+      const sb = Math.floor(Number(payload.sb)), bb = Math.floor(Number(payload.bb));
+      if (!sb || sb < 1 || !bb || bb < 1) return { error: 'Enter valid blinds.' };
+      if (bb < sb) return { error: 'Big blind must be ≥ small blind.' };
+      room.sb = sb; room.bb = bb;
+      addLog(room, `Blinds set to ${sb}/${bb}`);
       return { ok: true };
     }
 
@@ -275,7 +525,7 @@ function applyAction(room, actor, action, payload = {}) {
       if (!isHost) return { error: 'Only the host can undo.' };
       if (!room.history.length) return { error: 'Nothing to undo.' };
       const s = JSON.parse(room.history.pop());
-      room.pot = s.pot; room.bets = s.bets; room.folded = s.folded;
+      room.pot = s.pot; room.buttonId = s.buttonId; room.hand = s.hand;
       room.bjBets = s.bjBets; room.dealerId = s.dealerId; room.log = s.log;
       s.balances.forEach(({ id, b }) => { const p = getP(room, id); if (p) p.balance = b; });
       return { ok: true };
@@ -303,8 +553,9 @@ function applyAction(room, actor, action, payload = {}) {
       if (!isHost) return { error: 'Host only.' };
       if (payload.playerId === room.hostId) return { error: 'Cannot remove the host.' };
       const p = getP(room, payload.playerId); if (!p) return { error: 'No such player.' };
+      if (room.hand && room.hand.active && room.hand.inHand[p.id]) return { error: 'Cannot remove a player mid-hand. Finish the hand first.' };
       room.players = room.players.filter(x => x.id !== p.id);
-      delete room.bets[p.id]; delete room.folded[p.id]; delete room.bjBets[p.id];
+      delete room.bjBets[p.id];
       if (room.dealerId === p.id) room.dealerId = room.players[0] ? room.players[0].id : null;
       addLog(room, `${p.name} was removed`);
       return { ok: true };
@@ -396,10 +647,12 @@ const server = http.createServer(async (req, res) => {
     const b = await readBody(req);
     const name = String(b.hostName || '').trim().slice(0, 24);
     const chips = Math.floor(Number(b.startChips));
+    const sb = Math.floor(Number(b.sb)) || 25;
+    const bb = Math.floor(Number(b.bb)) || 50;
     if (!name) return sendJSON(res, 400, { error: 'Enter your name.' });
     if (!chips || chips < 1) return sendJSON(res, 400, { error: 'Enter a valid starting amount.' });
     const code = genCode();
-    const room = newRoom(code, name, chips);
+    const room = newRoom(code, name, chips, sb, bb);
     const host = { id: genId(), name, balance: chips, token: genToken() };
     room.players.push(host);
     room.hostId = host.id;

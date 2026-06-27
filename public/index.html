@@ -72,6 +72,24 @@
   .bet-row input{flex:1;padding:9px 12px;font-size:15px}
   .quick{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
   .quick button{background:#102a1c;color:var(--text);border:1px solid var(--line);font-weight:600;padding:7px 11px;font-size:13px;border-radius:8px}
+  .pot-sub{font-size:13px;color:#bfe9cf;margin-top:6px;line-height:1.45}
+  .badge.btn{background:#f4f4ee;color:#111}
+  .badge.pos{background:#1d2c44;color:var(--blue);border:1px solid #2c4a6e}
+  .badge.allin{background:linear-gradient(180deg,#ef6f64,var(--red));color:#fff}
+  .badge.out{background:#23332a;color:var(--muted);border:1px solid var(--line)}
+  .pl.toact{border-color:var(--gold);box-shadow:0 0 0 2px rgba(232,198,106,.35)}
+  .pl-bet{font-size:12px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:8px}
+  .pl-bet .chips{color:var(--gold);font-weight:700}
+  .pl-bet .toact-tag{color:var(--gold);font-weight:700;margin-left:auto}
+  button.gold{background:linear-gradient(180deg,#f1d684,var(--gold));color:var(--ink)}
+  .actbar{background:linear-gradient(180deg,#1d3829,#102a1c);border:1px solid var(--gold-dim);border-radius:14px;
+    padding:14px;margin-bottom:14px;box-shadow:0 0 26px rgba(232,198,106,.14)}
+  .actbar-head{font-size:13px;font-weight:700;color:var(--gold);margin-bottom:10px;text-align:center}
+  .actbar-row{display:flex;gap:8px}
+  .actbar-row button{flex:1;padding:15px 8px;font-size:16px}
+  .raisebox{margin-top:10px}
+  .raise-quick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .raise-quick button{flex:1;min-width:62px;background:#102a1c;color:var(--text);border:1px solid var(--line);font-size:13px;padding:9px 5px;font-weight:600}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
   .toolbar button{flex:1;min-width:110px}
   .help-fab{position:fixed;right:18px;bottom:18px;width:58px;height:58px;border-radius:50%;font-size:26px;
@@ -155,6 +173,11 @@
       <div style="height:12px"></div>
       <label>Starting chips per player</label>
       <input id="startChips" type="number" inputmode="numeric" value="1000" min="1">
+      <div style="height:12px"></div>
+      <div class="row">
+        <div><label>Small blind</label><input id="sbChips" type="number" inputmode="numeric" value="25" min="1"></div>
+        <div><label>Big blind</label><input id="bbChips" type="number" inputmode="numeric" value="50" min="1"></div>
+      </div>
       <div style="height:16px"></div>
       <button style="width:100%" onclick="createGame()">Create Game &amp; Get Code</button>
       <div class="hint">You'll get a 4-letter room code to share. Everyone opens this site, taps <b>Join</b>, and enters the code.</div>
@@ -205,10 +228,12 @@
     <!-- POKER -->
     <div id="pokerView">
       <div class="pot">
-        <div class="lab">Pot</div>
+        <div class="lab" id="streetLab">Pot</div>
         <div class="amt"><span class="c" id="potAmt">0</span></div>
-        <div id="potCtrls" style="margin-top:12px;display:flex;gap:8px;justify-content:center"></div>
+        <div class="pot-sub" id="potSub"></div>
+        <div id="potCtrls" style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"></div>
       </div>
+      <div id="actionBar"></div>
       <div id="pokerPlayers" class="plist"></div>
     </div>
 
@@ -259,10 +284,12 @@ async function api(path, body){
 async function createGame(){
   const hostName = $('hostName').value.trim();
   const startChips = parseInt($('startChips').value,10);
+  const sb = parseInt($('sbChips').value,10)||25;
+  const bb = parseInt($('bbChips').value,10)||50;
   if(!hostName){ toast('Enter your name',1); return; }
   if(!startChips||startChips<1){ toast('Enter a valid starting amount',1); return; }
   try{
-    const d = await api('/api/create',{hostName,startChips});
+    const d = await api('/api/create',{hostName,startChips,sb,bb});
     ME = { room:d.roomCode, token:d.token, you:d.playerId, isHost:true };
     saveSession();
     $('shareCode').textContent = d.roomCode;
@@ -338,55 +365,131 @@ function render(){
   renderToolbar();
 }
 
+const STREET_NAMES = {preflop:'Pre-flop',flop:'Flop',turn:'Turn',river:'River',showdown:'Showdown'};
 function renderPoker(){
-  $('potAmt').textContent = fmt(S.pot);
-  // pot controls (host only)
-  const pc = $('potCtrls');
-  if(ME.isHost){
-    pc.innerHTML = `<button class="blue sm" ${S.pot<=0?'disabled':''} onclick="openAward()">Award Pot ▸</button>
-      <button class="ghost sm" onclick="act('newhand')">New Hand</button>`;
+  const h = S.hand;
+  const streetLab=$('streetLab'), potSub=$('potSub'), pc=$('potCtrls'), ab=$('actionBar');
+  $('potAmt').textContent = fmt(h ? h.pot : 0);
+
+  if(!h || (!h.active && !h.bettingDone)){
+    // between hands
+    streetLab.textContent = (h && h.street==='done') ? 'Hand complete' : 'Poker';
+    potSub.innerHTML = `Blinds <b style="color:var(--gold)">${fmt(S.sb)}/${fmt(S.bb)}</b>`;
+    ab.innerHTML='';
+    if(ME.isHost){
+      pc.innerHTML = `<button class="sm" onclick="act('starthand')">${h&&h.street==='done'?'Deal Next Hand':'Deal First Hand'} ▸</button>
+        <button class="ghost sm" onclick="openBlinds()">Blinds ✎</button>`;
+    } else {
+      pc.innerHTML = `<span class="hint" style="margin-top:0">Waiting for the host to deal…</span>`;
+    }
+  } else if(h.bettingDone){
+    // showdown — host awards
+    streetLab.textContent = 'Showdown';
+    potSub.innerHTML = esc(h.message||'');
+    ab.innerHTML='';
+    pc.innerHTML = ME.isHost
+      ? `<button class="blue sm" onclick="openAward()">Award Pot ▸</button>`
+      : `<span class="hint" style="margin-top:0">Host is awarding the pot…</span>`;
   } else {
-    pc.innerHTML = `<span class="hint" style="margin-top:0">The host pays out the pot.</span>`;
+    // live betting
+    streetLab.textContent = STREET_NAMES[h.street]||'Poker';
+    const toAct = S.players.find(p=>p.id===h.toActId);
+    potSub.innerHTML = (h.message?`<div style="color:var(--green);font-weight:600">${esc(h.message)}</div>`:'')
+      + `To call <b style="color:var(--gold)">${fmt(h.currentBet)}</b>${toAct?` · <b>${esc(toAct.name)}</b> to act`:''}`;
+    pc.innerHTML='';
+    renderActionBar();
   }
-  const c = $('pokerPlayers'); c.innerHTML='';
+
+  const c=$('pokerPlayers'); c.innerHTML='';
   S.players.forEach(p=>{
-    const isMe = p.id===ME.you;
-    const canAct = isMe || ME.isHost;
-    const el = document.createElement('div');
-    el.className = 'pl'+(p.folded?' folded':'')+(isMe?' me':'');
-    el.innerHTML = `
+    const isMe=p.id===ME.you;
+    const sittingOut = h && h.active && !p.seated;
+    const el=document.createElement('div');
+    el.className='pl'+(p.folded?' folded':'')+(isMe?' me':'')+(p.isToAct?' toact':'');
+    const badges=[
+      isMe?'<span class="badge you">You</span>':'',
+      p.id===S.hostId?'<span class="badge host">Host</span>':'',
+      p.isButton?'<span class="badge btn">BTN</span>':'',
+      p.isSB?'<span class="badge pos">SB</span>':'',
+      p.isBB?'<span class="badge pos">BB</span>':'',
+      p.allIn?'<span class="badge allin">ALL IN</span>':'',
+      sittingOut?'<span class="badge out">sitting out</span>':''
+    ].join('');
+    const betLine = (h&&h.active)
+      ? `<div class="pl-bet">${p.folded?'<span style="color:#7a8a80">folded</span>'
+          : (p.streetBet>0?`<span class="chips">▮ ${fmt(p.streetBet)}</span> in front`:'—')}
+          ${p.isToAct?'<span class="toact-tag">● to act</span>':''}</div>`
+      : '';
+    el.innerHTML=`
       <div class="pl-top">
-        <div class="pl-name">
-          <span class="dot ${p.connected?'on':''}"></span>
-          <span class="nm">${esc(p.name)}</span>
-          ${isMe?'<span class="badge you">You</span>':''}
-          ${p.id===S.hostId?'<span class="badge host">Host</span>':''}
-          ${p.folded?'':'<span class="badge in">in</span>'}
-        </div>
+        <div class="pl-name"><span class="dot ${p.connected?'on':''}"></span><span class="nm">${esc(p.name)}</span>${badges}</div>
         <div class="pl-bal">${fmt(p.balance)}</div>
-      </div>
-      <div class="pl-meta">In pot this hand: <b style="color:#cfe">${fmt(p.inPot)}</b></div>
-      ${canAct?`
-      <div class="bet-row">
-        <input type="number" inputmode="numeric" id="bet_${p.id}" placeholder="amount" min="1">
-        <button class="sm shrink" onclick="doBet('${p.id}')">Bet</button>
-        <button class="ghost sm shrink" onclick="act('allin',{playerId:'${p.id}'})">All-in</button>
-      </div>
-      <div class="quick">
-        ${[5,10,25,50,100].map(a=>`<button onclick="quickBet('${p.id}',${a})">+${a}</button>`).join('')}
-        <button class="${p.folded?'':'danger'} tiny" style="margin-left:auto" onclick="act('${p.folded?'unfold':'fold'}',{playerId:'${p.id}'})">${p.folded?'Un-fold':'Fold'}</button>
-      </div>`:''}
-    `;
+      </div>${betLine}`;
     c.appendChild(el);
   });
 }
 
-function doBet(pid){
-  const inp = $('bet_'+pid); const a = parseInt(inp.value,10);
-  if(!a||a<1){ toast('Enter an amount',1); return; }
-  act('bet',{playerId:pid,amount:a}); inp.value='';
+function renderActionBar(){
+  const h=S.hand, ab=$('actionBar');
+  const actor=S.players.find(p=>p.id===h.toActId);
+  if(!actor){ ab.innerHTML=''; return; }
+  const myTurn = h.toActId===ME.you;
+  if(!myTurn && !ME.isHost){ ab.innerHTML=''; return; }   // spectators just watch
+  const toCall = h.currentBet - actor.streetBet;
+  const canCheck = toCall<=0;
+  const callAmt = Math.min(toCall, actor.balance);
+  const isCallAllIn = toCall>=actor.balance;
+  const maxRaiseTo = actor.streetBet + actor.balance;
+  const minRaiseTo = Math.min(h.currentBet + h.bb, maxRaiseTo);
+  const canRaise = actor.balance>0 && maxRaiseTo>h.currentBet;
+  ab.innerHTML = `<div class="actbar">
+    <div class="actbar-head">${myTurn?'🟢 Your turn':'Acting for '+esc(actor.name)} · stack ${fmt(actor.balance)}</div>
+    <div class="actbar-row">
+      <button class="danger" onclick="pmove('fold')">Fold</button>
+      ${canCheck ? `<button onclick="pmove('check')">Check</button>`
+                 : `<button class="blue" onclick="pmove('call')">Call ${fmt(callAmt)}${isCallAllIn?' · all in':''}</button>`}
+      ${canRaise ? `<button class="gold" onclick="toggleRaise()">${h.currentBet>0?'Raise':'Bet'} ▸</button>` : ''}
+    </div>
+    ${canRaise?`<div class="raisebox" id="raisebox" style="display:none">
+      <div class="raise-quick">
+        <button onclick="setRaise(${minRaiseTo})">Min ${fmt(minRaiseTo)}</button>
+        ${raisePresets(h,actor).map(v=>`<button onclick="setRaise(${v})">${fmt(v)}</button>`).join('')}
+        <button onclick="setRaise(${maxRaiseTo})">All-in</button>
+      </div>
+      <div class="bet-row">
+        <input type="number" inputmode="numeric" id="raiseInput" value="${minRaiseTo}" min="${h.currentBet+1}">
+        <button class="gold shrink" onclick="doRaise()">${h.currentBet>0?'Raise to':'Bet'}</button>
+      </div>
+    </div>`:''}
+  </div>`;
 }
-function quickBet(pid,a){ act('bet',{playerId:pid,amount:a}); }
+function raisePresets(h,actor){
+  const maxTo=actor.streetBet+actor.balance;
+  return [0.5,1].map(f=> h.currentBet + Math.round(f*h.pot))
+    .map(v=> Math.min(Math.max(v, h.currentBet+h.bb), maxTo))
+    .filter((v,i,a)=> v>h.currentBet && v<maxTo && a.indexOf(v)===i);
+}
+function pmove(move){ act('pokermove',{move}); }
+function toggleRaise(){ const b=$('raisebox'); if(b) b.style.display = b.style.display==='none'?'block':'none'; }
+function setRaise(v){ const i=$('raiseInput'); if(i) i.value=v; }
+function doRaise(){
+  const v=parseInt($('raiseInput').value,10);
+  if(isNaN(v)){ toast('Enter an amount',1); return; }
+  act('pokermove',{move:'raise',amount:v});
+}
+function openBlinds(){
+  $('sheet').innerHTML=`<button class="close" onclick="closeAll()">✕</button>
+    <h2>Blinds</h2><div class="sub">Auto-posted each hand. Change between hands.</div>
+    <div style="height:12px"></div>
+    <div class="row">
+      <div><label>Small blind</label><input type="number" id="sbIn" value="${S.sb}" min="1"></div>
+      <div><label>Big blind</label><input type="number" id="bbIn" value="${S.bb}" min="1"></div>
+    </div>
+    <div style="height:14px"></div>
+    <button style="width:100%" onclick="saveBlinds()">Save blinds</button>`;
+  openSheet();
+}
+function saveBlinds(){ act('setblinds',{sb:parseInt($('sbIn').value,10),bb:parseInt($('bbIn').value,10)}); closeAll(); }
 
 function renderBlackjack(){
   const dealer = S.players.find(p=>p.id===S.dealerId);
@@ -459,32 +562,41 @@ function requestMode(m){
   act('setmode',{mode:m});
 }
 
-/* ---------------- award pot ---------------- */
-let awardSel = new Set();
+/* ---------------- award pot(s) at showdown ---------------- */
+let awardSel = {};   // potIndex -> Set(playerId)
 function openAward(){
-  if(S.pot<=0) return;
-  awardSel = new Set();
-  const live = S.players.filter(p=>!p.folded);
-  if(live.length===1) awardSel.add(live[0].id);
+  const pots = (S.hand && S.hand.pots) || [];
+  awardSel = {};
+  pots.forEach((pot,i)=>{ awardSel[i]=new Set(); if(pot.eligibleIds.length===1) awardSel[i].add(pot.eligibleIds[0]); });
   drawAward(); openSheet();
 }
 function drawAward(){
-  const opts = S.players.map(p=>{
-    const sel = awardSel.has(p.id);
-    return `<div class="win-opt ${sel?'sel':''}" onclick="toggleWin('${p.id}')">
-      <div><b>${esc(p.name)}</b> <span style="color:var(--muted);font-size:12px">· ${fmt(p.balance)}</span></div>
-      <div class="ck">${sel?'✓':''}</div></div>`;
+  const pots = (S.hand && S.hand.pots) || [];
+  const blocks = pots.map((pot,i)=>{
+    const opts = pot.eligibleIds.map((id,j)=>{
+      const sel = awardSel[i].has(id);
+      return `<div class="win-opt ${sel?'sel':''}" onclick="toggleWin(${i},'${id}')">
+        <div><b>${esc(pot.eligible[j])}</b></div><div class="ck">${sel?'✓':''}</div></div>`;
+    }).join('');
+    const n=awardSel[i].size, each=n?Math.floor(pot.amount/n):0;
+    return `<div class="sec-title" style="margin-top:14px">${pots.length>1?`Pot ${i+1} · `:''}<span style="color:var(--gold)">${fmt(pot.amount)}</span> chips</div>
+      <div class="win-list">${opts}</div>
+      ${n>1?`<div class="hint" style="margin-top:0">Split ${n} ways: ${fmt(each)} each.</div>`:''}`;
   }).join('');
-  const n = awardSel.size, each = n?Math.floor(S.pot/n):0, rem = n?S.pot-each*n:0;
+  const ready = pots.length && pots.every((_,i)=>awardSel[i].size>0);
   $('sheet').innerHTML = `<button class="close" onclick="closeAll()">✕</button>
-    <h2>Award the Pot</h2>
-    <div class="sub">Pot: <b style="color:var(--gold)">${fmt(S.pot)}</b> — pick the winner(s).</div>
-    <div class="win-list">${opts}</div>
-    ${n>1?`<div class="hint">Split ${n} ways: ${fmt(each)} each${rem?` (+${rem} odd chip to the first)`:''}.</div>`:''}
-    <button style="width:100%;margin-top:6px" ${n?'':'disabled'} onclick="confirmAward()">Pay out ${n?fmt(S.pot):''} </button>`;
+    <h2>Award ${pots.length>1?'the Pots':'the Pot'}</h2>
+    <div class="sub">Pick the winner(s) of each pot — ties split evenly.</div>
+    ${blocks}
+    <div style="height:14px"></div>
+    <button style="width:100%" ${ready?'':'disabled'} onclick="confirmAward()">Pay out</button>`;
 }
-function toggleWin(pid){ awardSel.has(pid)?awardSel.delete(pid):awardSel.add(pid); drawAward(); }
-function confirmAward(){ if(!awardSel.size) return; act('award',{winners:[...awardSel]}); closeAll(); }
+function toggleWin(i,id){ awardSel[i].has(id)?awardSel[i].delete(id):awardSel[i].add(id); drawAward(); }
+function confirmAward(){
+  const awards = Object.keys(awardSel).map(i=>({potIndex:+i,winners:[...awardSel[i]]}));
+  if(awards.some(a=>!a.winners.length)){ toast('Pick a winner for each pot',1); return; }
+  act('awardshowdown',{awards}); closeAll();
+}
 
 /* ---------------- manage ---------------- */
 function openManage(){
@@ -606,10 +718,12 @@ function appRules(){return `
   <h3>Roles</h3>
   <ul><li>The <b>Host</b> is the banker: switches Poker/Blackjack, awards pots, settles blackjack, manages players, can undo.</li>
   <li><b>Players</b> control their own seat: place their own bets, go all-in, fold.</li></ul>
-  <h3>Poker</h3>
-  <ul><li>Tap <b>Bet</b> / the quick buttons / <b>All-in</b> to push your chips into the <b>Pot</b>.</li>
-  <li><b>Fold</b> dims you for the hand. The host hits <b>Award Pot</b> and picks the winner(s) — split pots divide evenly.</li>
-  <li><b>New Hand</b> clears the table for the next deal.</li></ul>
+  <h3>Poker (round-based)</h3>
+  <ul><li>The host taps <b>Deal Hand</b>. The app auto-posts the <b>small &amp; big blinds</b> and rotates the dealer button each hand.</li>
+  <li>When it's your turn, your phone lights up <b>🟢 Your turn</b> with only the legal buttons: <b>Fold</b>, <b>Check/Call</b>, and <b>Bet/Raise</b> (with quick sizes + All-in).</li>
+  <li>The app tracks the amount to call, moves around the table, and advances through pre-flop → flop → turn → river on its own.</li>
+  <li>If everyone folds to one player, they win instantly. Otherwise the host taps <b>Award Pot</b> at showdown and picks the winner(s). <b>Side pots</b> from all-ins (and uncalled bets) are calculated for you.</li>
+  <li>The host can change <b>Blinds</b> between hands.</li></ul>
   <h3>Blackjack</h3>
   <ul><li>Host picks the <b>Dealer</b>. Everyone else bets, then the host resolves each hand: Win / Blackjack / Push / Lose.</li></ul>
   <h3>Good to know</h3>
